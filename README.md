@@ -4,9 +4,24 @@
 <img align="right" src="img/HKUST.jpg" width="12%">
 
 This is the TensorFlow implementation of the paper:
-**Generalizing Question Answering System with Pre-trained Language Model Fine-tuning**. Dan Su*, Yan Xu*, Genta Indra Winata, Peng Xu, Hyeondey Kim, Zihan Liu, Pascale Fung  ***MRQA@EMNLP 2019*** [[PDF]](https://www.aclweb.org/anthology/D19-5827.pdf)
+**Generalizing Question Answering System with Pre-trained Language Model Fine-tuning**. 
+
+Dan Su*, Yan Xu*, Genta Indra Winata, Peng Xu, Hyeondey Kim, Zihan Liu, Pascale Fung  ***MRQA@EMNLP 2019*** [[PDF]](https://www.aclweb.org/anthology/D19-5827.pdf)
 
 [**Dan Su**]() and [**Yan Xu**](https://github.com/yana-xuyan)  contributed equally to this work. 
+
+The MRQA model can be downloaded by this [link](https://drive.google.com/drive/folders/1yjzYN_KCz8uLobqaUddftBGPAZ6uSDDj?usp=sharing).
+
+If you use our HLTC-MRQA model in your work, please cite the following paper. The bibtex is listed below:
+<pre>
+@inproceedings{su2019generalizing,
+  title={Generalizing Question Answering System with Pre-trained Language Model Fine-tuning},
+  author={Su, Dan and Xu, Yan and Winata, Genta Indra and Xu, Peng and Kim, Hyeondey and Liu, Zihan and Fung, Pascale},
+  booktitle={Proceedings of the 2nd Workshop on Machine Reading for Question Answering},
+  pages={203--211},
+  year={2019}
+}
+</pre>
 
 ## Dependency
 Check the packages needed or simply run the command
@@ -25,15 +40,3 @@ With a large number of datasets being released and new techniques being proposed
 ## Experiment
 
 
-The MRQA model can be downloaded by this [link](https://drive.google.com/drive/folders/1yjzYN_KCz8uLobqaUddftBGPAZ6uSDDj?usp=sharing).
-
-If you want to use our HLTC-MRQA model in your work, please cite the following paper. The bibtex is listed below:
-<pre>
-@inproceedings{su2019generalizing,
-  title={Generalizing Question Answering System with Pre-trained Language Model Fine-tuning},
-  author={Su, Dan and Xu, Yan and Winata, Genta Indra and Xu, Peng and Kim, Hyeondey and Liu, Zihan and Fung, Pascale},
-  booktitle={Proceedings of the 2nd Workshop on Machine Reading for Question Answering},
-  pages={203--211},
-  year={2019}
-}
-</pre>

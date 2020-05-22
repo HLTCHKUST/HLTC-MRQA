@@ -1,0 +1,4 @@
+python==3.6
+tensorflow-gpu==1.13.1
+jsonlines
+sentencepiece

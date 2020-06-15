@@ -36,7 +36,7 @@ With a large number of datasets being released and new techniques being proposed
 The required data can be downloaded from [MRQA](https://github.com/mrqa/MRQA-Shared-Task-2019) Github repository.
 
 ## Methodology
-<img src="img/model.png" width="25%" /><img src="img/cluster.png" width="50%" />
+<img src="img/model.png" width="25%" /><img src="img/cluster.png" width="40%" />
 
 ## Experiment
 To finetune the XLNet-based model on MRQA dataset with TPU, please modify the paths in the script file and run:
@@ -61,8 +61,8 @@ Use the exported HLTC-MRQA model for inference:
 ```
 
 ## Results
-<p align="center">
-<img src="img/results.png" width="25%" />
+<p align="left">
+<img src="img/results.png" width="40%" />
 </p>
 
 ## Acknowledgement

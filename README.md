@@ -32,11 +32,39 @@ Check the packages needed or simply run the command
 ## Abstract
 With a large number of datasets being released and new techniques being proposed, Question answering (QA) systems have witnessed great breakthroughs in reading comprehension (RC)tasks. However, most existing methods focus on improving in-domain performance, leaving open the research question of how these mod-els and techniques can generalize to out-of-domain and unseen RC tasks. To enhance the generalization ability, we propose a multi-task learning framework that learns the shared representation across different tasks. Our model is built on top of a large pre-trained language model, such as XLNet, and then fine-tuned on multiple RC datasets. Experimental results show the effectiveness of our methods, with an average Exact Match score of 56.59 and an average F1 score of 68.98, which significantly improves the BERT-Large baseline by 8.39 and 7.22.
 
-## Model
-<p align="center">
+## Data
+The required data can be downloaded from [MRQA](https://github.com/mrqa/MRQA-Shared-Task-2019) Github repository.
+
+## Methodology
 <img src="img/model.png" width="25%" />
-</p>
+<img src="img/cluster.png" width="25%" />
 
 ## Experiment
+To finetune the XLNet-based model on MRQA dataset with TPU, please modify the paths in the script file and run:
+```console
+❱❱❱ sh scripts/run_mrqa_TPU.sh
+```
+To finetune the XLNet-based model on MRQA dataset with single GPU, please modify the paths in the script file and run:
+```console
+❱❱❱ sh scripts/run_mrqa_GPU.sh
+```
+Save the pretrained HLTC-MRQA model for inference:
+```console
+❱❱❱ sh scripts/save_mrqa_model.sh
+```
+Use the un-exported HLTC-MRQA model for inference:
+```console
+❱❱❱ sh scripts/predict_mrqa.sh
+```
+Use the exported HLTC-MRQA model for inference:
+```console
+❱❱❱ sh scripts/predictor.sh
+```
 
+## Results
+<p align="center">
+<img src="img/results.png" width="25%" />
+</p>
 
+## Acknowledgement
+The code is partially modified from the original [XLNet](https://github.com/zihangdai/xlnet) repository.

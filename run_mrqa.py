@@ -26,9 +26,9 @@ import jsonlines
 import tensorflow as tf
 import sentencepiece as spm
 from src.prepro_utils import preprocess_text, encode_ids, encode_pieces, printable_text
-import src.function_builder
-import src.model_utils
-import src.multiqa_utils
+import src.function_builder as function_builder
+import src.model_utils as model_utils
+import src.mrqa_utils as mrqa_utils
 from src.data_utils import SEP_ID, CLS_ID, VOCAB_SIZE
 
 SPIECE_UNDERLINE = u'▁'
@@ -898,13 +898,13 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
   with tf.gfile.GFile(output_null_log_odds_file, "w") as writer:
     writer.write(json.dumps(scores_diff_json, indent=4) + "\n")
 
-  qid_to_has_ans = multiqa_utils.make_qid_to_has_ans(orig_data)
+  qid_to_has_ans = mrqa_utils.make_qid_to_has_ans(orig_data)
   has_ans_qids = [k for k, v in qid_to_has_ans.items() if v]
   no_ans_qids = [k for k, v in qid_to_has_ans.items() if not v]
-  exact_raw, f1_raw = multiqa_utils.get_raw_scores(orig_data, all_predictions)
+  exact_raw, f1_raw = mrqa_utils.get_raw_scores(orig_data, all_predictions)
   out_eval = {}
 
-  multiqa_utils.find_all_best_thresh_v2(out_eval, all_predictions, exact_raw, f1_raw,
+  mrqa_utils.find_all_best_thresh_v2(out_eval, all_predictions, exact_raw, f1_raw,
                                    scores_diff_json, qid_to_has_ans)
 
   return out_eval

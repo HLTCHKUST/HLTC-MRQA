@@ -14,6 +14,7 @@ import json
 import six
 import random
 import gc
+import sys
 
 import numpy as np
 
@@ -26,9 +27,9 @@ import jsonlines
 import tensorflow as tf
 import sentencepiece as spm
 from src.prepro_utils import preprocess_text, encode_ids, encode_pieces, printable_text
-import src.function_builder_GPU as function_builder
-import src.model_utils_GPU as model_utils
-import src.mrqa_utils as mrqa_utils
+import src.function_builder as function_builder
+import src.model_utils as model_utils
+import src.mrqa_utils
 from src.data_utils import SEP_ID, CLS_ID, VOCAB_SIZE
 
 SPIECE_UNDERLINE = u'▁'
@@ -154,14 +155,13 @@ flags.DEFINE_integer("start_n_top", default=5, help="Beam size for span start.")
 flags.DEFINE_integer("end_n_top", default=5, help="Beam size for span end.")
 flags.DEFINE_string("target_eval_key", default="best_f1",
                     help="Use has_ans_f1 for Model I.")
+flags.DEFINE_string("export_dir_base", default="",
+                    help="Path of exported models.")
 
 
 FLAGS = flags.FLAGS
 
-IN_DOMAIN_DATA = ["SQuAD", "NewsQA", "SearchQA", "TriviaQA-web", "NaturalQuestionsShort", "HotpotQA"]
-OUT_OF_DOMAIN_DATA = ["DROP", "RACE", "DuoRC.ParaphraseRC", "BioASQ", "TextbookQA", "RelationExtraction"]
-
-class MultiqaExample(object):
+class MRQAExample(object):
   """A single training/test example for simple sequence classification.
 
      For examples without an answer, the start and end position are -1.
@@ -235,7 +235,7 @@ class InputFeatures(object):
     self.end_position = end_position
     self.is_impossible = is_impossible
 
-def read_multiqa_data(input_file, is_training):
+def read_mrqa_data(input_file, is_training):
   """Read a QA data jsonl file into a list of Examples."""
   with tf.gfile.Open(input_file, "r") as reader:
     input_data = jsonlines.Reader(reader)
@@ -283,7 +283,7 @@ def read_multiqa_data(input_file, is_training):
           send_position = -1
           orig_answer_text = ""        
 
-      example = MultiqaExample(
+      example = MRQAExample(
           qas_id=qas_id,
           question_text=question_text,
           paragraph_text=paragraph_text,
@@ -292,6 +292,62 @@ def read_multiqa_data(input_file, is_training):
           send_position=send_position,
           is_impossible=is_impossible)
       examples.append(example)
+  return examples
+
+def arrange_mrqa_data(input_data, is_training):
+  """Read a QA data jsonl file into a list of Examples."""
+  examples = []
+  entry = input_data
+
+  assert type(entry) == dict
+  assert u'context' in entry
+  assert u'qas' in entry
+
+  paragraph_text = entry["context"]
+  print(input_data)
+  print("="*80)
+  print(len(entry["qas"]))
+  for qa in entry["qas"]:
+    assert u'qid' in qa
+    assert u'question' in qa
+    assert u'detected_answers' in qa
+    assert u'text' in qa[u'detected_answers'][0]
+    assert u'char_spans' in qa[u'detected_answers'][0]
+
+    qas_id = qa["qid"]
+    question_text = qa["question"]
+    start_position = None
+    send_position = None
+    orig_answer_text = None
+    is_impossible = False
+    
+    if is_training:
+      is_impossible = False if qa["detected_answers"]!=[] else True
+      # if (len(qa["answers"]) != 1) and (not is_impossible):  # TriviaQA may have several answers, choose the first one
+      #     raise ValueError(
+      #         "For training, each question should have exactly 1 answer.")
+      if not is_impossible:
+        answer = qa["detected_answers"][0]
+        orig_answer_text = answer["text"]
+        start_position = answer["char_spans"][0][0]
+        send_position = answer["char_spans"][0][1]
+        assert type(start_position)==int
+      else:
+        start_position = -1
+        send_position = -1
+        orig_answer_text = ""        
+
+    example = MRQAExample(
+        qas_id=qas_id,
+        question_text=question_text,
+        paragraph_text=paragraph_text,
+        orig_answer_text=orig_answer_text,
+        start_position=start_position,
+        send_position=send_position,
+        is_impossible=is_impossible)
+    examples.append(example)
+    print(len(examples))
+    print("="*80)
   return examples
 
 def _convert_index(index, pos, M=None, is_start=True):
@@ -587,36 +643,6 @@ def convert_examples_to_features(examples, sp_model, max_seq_length,
         start_position = cls_index
         end_position = cls_index
 
-      # if example_index < 20:
-      #   tf.logging.info("*** Example ***")
-      #   tf.logging.info("unique_id: %s" % (unique_id))
-      #   tf.logging.info("example_index: %s" % (example_index))
-      #   tf.logging.info("doc_span_index: %s" % (doc_span_index))
-      #   tf.logging.info("tok_start_to_orig_index: %s" % " ".join(
-      #       [str(x) for x in cur_tok_start_to_orig_index]))
-      #   tf.logging.info("tok_end_to_orig_index: %s" % " ".join(
-      #       [str(x) for x in cur_tok_end_to_orig_index]))
-      #   tf.logging.info("token_is_max_context: %s" % " ".join([
-      #       "%d:%s" % (x, y) for (x, y) in six.iteritems(token_is_max_context)
-      #   ]))
-      #   tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-      #   tf.logging.info(
-      #       "input_mask: %s" % " ".join([str(x) for x in input_mask]))
-      #   tf.logging.info(
-      #       "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-
-      #   if is_training and span_is_impossible:
-      #     tf.logging.info("impossible example span")
-
-      #   if is_training and not span_is_impossible:
-      #     pieces = [sp_model.IdToPiece(token) for token in
-      #               tokens[start_position: (end_position + 1)]]
-      #     answer_text = sp_model.DecodePieces(pieces)
-      #     tf.logging.info("start_position: %d" % (start_position))
-      #     tf.logging.info("end_position: %d" % (end_position))
-      #     tf.logging.info(
-      #         "answer: %s" % (printable_text(answer_text)))
-
           # note(zhiliny): With multi processing,
           # the example_index is actually the index within the current process
           # therefore we use example_index=None to avoid being used in the future.
@@ -654,6 +680,7 @@ def convert_examples_to_features(examples, sp_model, max_seq_length,
 
   tf.logging.info("Total number of instances: {} = pos {} neg {}".format(
       cnt_pos + cnt_neg, cnt_pos, cnt_neg))
+	
 
 def _check_is_max_context(doc_spans, cur_span_index, position):
   """Check if this is the 'max context' doc span for the token."""
@@ -694,11 +721,9 @@ def _check_is_max_context(doc_spans, cur_span_index, position):
 class FeatureWriter(object):
   """Writes InputFeature to TF example file."""
 
-  def __init__(self, filename, is_training):
-    self.filename = filename
+  def __init__(self, is_training):
     self.is_training = is_training
     self.num_features = 0
-    self._writer = tf.python_io.TFRecordWriter(filename)
 
   def process_feature(self, feature):
     """Write a InputFeature to the TFRecordWriter as a tf.train.Example."""
@@ -731,10 +756,7 @@ class FeatureWriter(object):
       features["is_impossible"] = create_float_feature([impossible])
 
     tf_example = tf.train.Example(features=tf.train.Features(feature=features))
-    self._writer.write(tf_example.SerializeToString())
-
-  def close(self):
-    self._writer.close()
+    return tf_example.SerializeToString()
 
 RawResult = collections.namedtuple("RawResult",
     ["unique_id", "start_top_log_probs", "start_top_index",
@@ -748,13 +770,10 @@ _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
 _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
     "NbestPrediction", ["text", "start_log_prob", "end_log_prob"])
 
-def write_predictions(all_examples, all_features, all_results, n_best_size,
-                      max_answer_length, output_prediction_file,
-                      output_nbest_file,
-                      output_null_log_odds_file, orig_data):
+def get_predictions(all_examples, all_features, all_results, n_best_size,
+                    max_answer_length):
   """Write final predictions to the json file and log-odds of null if needed."""
-  tf.logging.info("Writing predictions to: %s" % (output_prediction_file))
-  # tf.logging.info("Writing nbest to: %s" % (output_nbest_file))
+  tf.logging.info("Getting predictions")
 
   example_index_to_features = collections.defaultdict(list)
   for feature in all_features:
@@ -765,8 +784,6 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
     unique_id_to_result[result.unique_id] = result
 
   all_predictions = collections.OrderedDict()
-  all_nbest_json = collections.OrderedDict()
-  scores_diff_json = collections.OrderedDict()
 
   for (example_index, example) in enumerate(all_examples):
     features = example_index_to_features[example_index]
@@ -862,47 +879,11 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
       if not best_non_null_entry:
         best_non_null_entry = entry
 
-    probs = _compute_softmax(total_scores)
-
-    nbest_json = []
-    for (i, entry) in enumerate(nbest):
-      output = collections.OrderedDict()
-      output["text"] = entry.text
-      output["probability"] = probs[i]
-      output["start_log_prob"] = entry.start_log_prob
-      output["end_log_prob"] = entry.end_log_prob
-      nbest_json.append(output)
-
-    assert len(nbest_json) >= 1
     assert best_non_null_entry is not None
 
-    score_diff = score_null
-    scores_diff_json[example.qas_id] = score_diff
-    # note(zhiliny): always predict best_non_null_entry
-    # and the evaluation script will search for the best threshold
     all_predictions[example.qas_id] = best_non_null_entry.text
 
-    all_nbest_json[example.qas_id] = nbest_json
-
-  with tf.gfile.GFile(output_prediction_file, "w") as writer:
-    writer.write(json.dumps(all_predictions, indent=4) + "\n")
-
-  with tf.gfile.GFile(output_nbest_file, "w") as writer:
-    writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
-
-  with tf.gfile.GFile(output_null_log_odds_file, "w") as writer:
-    writer.write(json.dumps(scores_diff_json, indent=4) + "\n")
-
-  qid_to_has_ans = mrqa_utils.make_qid_to_has_ans(orig_data)
-  has_ans_qids = [k for k, v in qid_to_has_ans.items() if v]
-  no_ans_qids = [k for k, v in qid_to_has_ans.items() if not v]
-  exact_raw, f1_raw = mrqa_utils.get_raw_scores(orig_data, all_predictions)
-  out_eval = {}
-
-  mrqa_utils.find_all_best_thresh_v2(out_eval, all_predictions, exact_raw, f1_raw,
-                                   scores_diff_json, qid_to_has_ans)
-
-  return out_eval
+  return all_predictions
 
 
 def _get_best_indexes(logits, n_best_size):
@@ -1132,64 +1113,11 @@ def _get_spm_basename():
   spm_basename = os.path.basename(FLAGS.spiece_model_file)
   return spm_basename
 
-def preprocess():
-  sp_model = spm.SentencePieceProcessor()
-  sp_model.Load(FLAGS.spiece_model_file)
-  spm_basename = _get_spm_basename()
-
-  train_rec_file = os.path.join(
-      FLAGS.output_dir,
-      "{}.{}.slen-{}.qlen-{}.train.tf_record".format(
-          spm_basename, FLAGS.proc_id, FLAGS.max_seq_length,
-          FLAGS.max_query_length))
-
-  # Read data from 6 training datasets
-  train_data = []
-  for data_name in IN_DOMAIN_DATA:
-    train_file = FLAGS.train_dir+"/"+data_name+".jsonl"
-    tf.logging.info("Read data from {}".format(train_file))
-    train_examples = read_multiqa_data(train_file, is_training=True)
-    train_data.extend(train_examples)
-  train_data = train_data[FLAGS.proc_id::FLAGS.num_proc]
-
-  # Pre-shuffle the input to avoid having to make a very large shuffle
-  # buffer in the `input_fn`.
-  random.shuffle(train_data)
-
-  tf.logging.info("Write to {}".format(train_rec_file))
-  train_writer = FeatureWriter(
-      filename=train_rec_file,
-      is_training=True)
-  convert_examples_to_features(
-      examples=train_data,
-      sp_model=sp_model,
-      max_seq_length=FLAGS.max_seq_length,
-      doc_stride=FLAGS.doc_stride,
-      max_query_length=FLAGS.max_query_length,
-      is_training=True,
-      output_fn=train_writer.process_feature)
-  train_writer.close()
-
-def main(_):
+def mrqa_predictor(FLAGS, json_data):
+  """
+  Get prediction with the data got fron mrqa official request.
+  """
   tf.logging.set_verbosity(tf.logging.INFO)
-
-  if not tf.gfile.Exists(FLAGS.output_dir):
-    tf.gfile.MakeDirs(FLAGS.output_dir)
-
-  if FLAGS.do_prepro:
-    preprocess()
-    return
-
-  #### Validate flags
-  if FLAGS.save_steps is not None:
-    FLAGS.iterations = min(FLAGS.iterations, FLAGS.save_steps)
-
-  if not FLAGS.do_train and not FLAGS.do_predict:
-    raise ValueError(
-        "At least one of `do_train` and `do_predict` must be True.")
-
-  if FLAGS.do_predict and not tf.gfile.Exists(FLAGS.predict_dir):
-    tf.gfile.MakeDirs(FLAGS.predict_dir)
 
   sp_model = spm.SentencePieceProcessor()
   sp_model.Load(FLAGS.spiece_model_file)
@@ -1197,146 +1125,133 @@ def main(_):
   ### TPU Configuration
   run_config = model_utils.configure_tpu(FLAGS)
 
-  model_fn = get_model_fn()
+  model_fn = get_model_fn()  # model configs, load the trained model
   spm_basename = _get_spm_basename()
 
-  # If TPU is not available, this will fall back to normal Estimator on CPU
-  # or GPU.
-  if FLAGS.use_tpu:
-    estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=FLAGS.use_tpu,
-        model_fn=model_fn,
-        config=run_config,
-        train_batch_size=FLAGS.train_batch_size,
-        predict_batch_size=FLAGS.predict_batch_size)
-  else:
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn,
-        config=run_config)
+  tf.logging.info("Got Data from Server...")
+  eval_data = arrange_mrqa_data(json_data, is_training=False)
 
-  if FLAGS.do_train:
-    train_rec_glob = os.path.join(
-        FLAGS.output_dir,
-        "{}.*.slen-{}.qlen-{}.train.tf_record".format(
-        spm_basename, FLAGS.max_seq_length,
-        FLAGS.max_query_length))
+  eval_writer = FeatureWriter(is_training=False)
+  eval_features = []
+  eval_features_inp = []
 
-    train_input_fn = input_fn_builder(
-        input_glob=train_rec_glob,
-        seq_length=FLAGS.max_seq_length,
-        is_training=True,
-        drop_remainder=True,
-        num_hosts=FLAGS.num_hosts)
+  def append_feature(feature):
+    eval_features.append(feature)
+    eval_features_inp.append(eval_writer.process_feature(feature))
 
-    estimator.train(input_fn=train_input_fn, max_steps=FLAGS.train_steps)
+  convert_examples_to_features(
+			examples=eval_data,
+			sp_model=sp_model,
+			max_seq_length=FLAGS.max_seq_length,
+			doc_stride=FLAGS.doc_stride,
+			max_query_length=FLAGS.max_query_length,
+			is_training=False,
+			output_fn=append_feature) 
 
-  if FLAGS.do_predict:
-    domain_data = IN_DOMAIN_DATA+OUT_OF_DOMAIN_DATA
+  predict_fn = tf.contrib.predictor.from_saved_model(FLAGS.export_dir_base)
 
-    for data_name in domain_data:
-      dev_file = FLAGS.dev_dir+"/"+data_name+".jsonl"
-      tf.logging.info("Read data from {}".format(dev_file))
-      eval_data = read_multiqa_data(dev_file, is_training=False)
+  cur_results = []
 
-      with tf.gfile.Open(dev_file, "r") as f:
-        orig_reader = jsonlines.Reader(f)
-      orig_data = []
-      for entry in orig_reader:
-        if u'header' in entry: continue
-        for q in entry["qas"]:
-          orig_data.append(q)
+  for num, eval_feature in enumerate(eval_features_inp):
+    result = predict_fn({"examples":[eval_feature]})
 
-      eval_rec_file = os.path.join(
-          FLAGS.output_dir,
-          "{}.slen-{}.qlen-{}.eval-{}.tf_record".format(
-              spm_basename, FLAGS.max_seq_length, FLAGS.max_query_length, data_name))
-      eval_feature_file = os.path.join(
-          FLAGS.output_dir,
-          "{}.slen-{}.qlen-{}.eval-{}.features.pkl".format(
-              spm_basename, FLAGS.max_seq_length, FLAGS.max_query_length, data_name))
+    if len(cur_results) % 1000 == 0:
+			tf.logging.info("Processing example: %d" % (len(cur_results)))
 
-      if tf.gfile.Exists(eval_rec_file) and tf.gfile.Exists(
-          eval_feature_file) and not FLAGS.overwrite_data:
-        tf.logging.info("Loading eval features from {}".format(eval_feature_file))
-        with tf.gfile.Open(eval_feature_file, 'rb') as fin:
-          eval_features = pickle.load(fin)
-      else:
-        eval_writer = FeatureWriter(filename=eval_rec_file, is_training=False)
-        eval_features = []
+    unique_id = int(result["unique_ids"])
+    start_top_log_probs = (
+				[float(x) for x in result["start_top_log_probs"].flat])
+    start_top_index = [int(x) for x in result["start_top_index"].flat]
+    end_top_log_probs = (
+				[float(x) for x in result["end_top_log_probs"].flat])
+    end_top_index = [int(x) for x in result["end_top_index"].flat]
 
-        def append_feature(feature):
-          eval_features.append(feature)
-          eval_writer.process_feature(feature)
+    cls_logits = float(result["cls_logits"].flat[0])
 
-        convert_examples_to_features(
-            examples=eval_data,
-            sp_model=sp_model,
-            max_seq_length=FLAGS.max_seq_length,
-            doc_stride=FLAGS.doc_stride,
-            max_query_length=FLAGS.max_query_length,
-            is_training=False,
-            output_fn=append_feature)
-        eval_writer.close()
+    cur_results.append(
+				RawResult(
+						unique_id=unique_id,
+						start_top_log_probs=start_top_log_probs,
+						start_top_index=start_top_index,
+						end_top_log_probs=end_top_log_probs,
+						end_top_index=end_top_index,
+						cls_logits=cls_logits))
 
-        with tf.gfile.Open(eval_feature_file, 'wb') as fout:
-          pickle.dump(eval_features, fout)
+  ret = get_predictions(eval_data, eval_features, cur_results,
+                        FLAGS.n_best_size, FLAGS.max_answer_length)
+  print(ret)
+  return dict(ret)
 
-      eval_input_fn = input_fn_builder(
-          input_glob=eval_rec_file,
-          seq_length=FLAGS.max_seq_length,
-          is_training=False,
-          drop_remainder=False,
-          num_hosts=1)
 
-      cur_results = []
-      for result in estimator.predict(
-          input_fn=eval_input_fn,
-          yield_single_examples=True):
+def mrqa_tester():
+  """
+  Get prediction with the data got fron mrqa official request.
+  """
+  tf.logging.set_verbosity(tf.logging.INFO)
 
-        if len(cur_results) % 1000 == 0:
-          tf.logging.info("Processing example: %d" % (len(cur_results)))
+  sp_model = spm.SentencePieceProcessor()
+  sp_model.Load(FLAGS.spiece_model_file)
 
-        unique_id = int(result["unique_ids"])
-        start_top_log_probs = (
-            [float(x) for x in result["start_top_log_probs"].flat])
-        start_top_index = [int(x) for x in result["start_top_index"].flat]
-        end_top_log_probs = (
-            [float(x) for x in result["end_top_log_probs"].flat])
-        end_top_index = [int(x) for x in result["end_top_index"].flat]
+  ### TPU Configuration
+  run_config = model_utils.configure_tpu(FLAGS)
 
-        cls_logits = float(result["cls_logits"].flat[0])
+  model_fn = get_model_fn()  # model configs, load the trained model
+  spm_basename = _get_spm_basename()
 
-        cur_results.append(
-            RawResult(
-                unique_id=unique_id,
-                start_top_log_probs=start_top_log_probs,
-                start_top_index=start_top_index,
-                end_top_log_probs=end_top_log_probs,
-                end_top_index=end_top_index,
-                cls_logits=cls_logits))
+  dev_file = FLAGS.dev_dir+"/DROP-piece.jsonl"
+  tf.logging.info("Read data from {}".format(dev_file))
+  eval_data = read_mrqa_data(dev_file, is_training=False)
 
-      output_prediction_file = os.path.join(
-          FLAGS.predict_dir, data_name+"_predictions.json")
-      output_nbest_file = os.path.join(
-          FLAGS.predict_dir, data_name+"_nbest_predictions.json")
-      output_null_log_odds_file = os.path.join(
-          FLAGS.predict_dir, data_name+"_null_odds.json")
+  eval_writer = FeatureWriter(is_training=False)
+  eval_features = []
+  eval_features_inp = []
 
-      ret = write_predictions(eval_data, eval_features, cur_results,
-                              FLAGS.n_best_size, FLAGS.max_answer_length,
-                              output_prediction_file,
-                              output_nbest_file,
-                              output_null_log_odds_file,
-                              orig_data)
+  def append_feature(feature):
+    eval_features.append(feature)
+    eval_features_inp.append(eval_writer.process_feature(feature))
 
-      # Log current result
-      tf.logging.info("=" * 80)
-      log_str = "Result | "
-      for key, val in ret.items():
-        log_str += "{} {} | ".format(key, val)
-      tf.logging.info(log_str)
-      tf.logging.info("=" * 80)
+  convert_examples_to_features(
+			examples=eval_data,
+			sp_model=sp_model,
+			max_seq_length=FLAGS.max_seq_length,
+			doc_stride=FLAGS.doc_stride,
+			max_query_length=FLAGS.max_query_length,
+			is_training=False,
+			output_fn=append_feature) 
 
+  predict_fn = tf.contrib.predictor.from_saved_model(FLAGS.export_dir_base)
+
+  cur_results = []
+  N = 0
+  for num, eval_feature in enumerate(eval_features_inp):
+    result = predict_fn({"examples":[eval_feature]})
+
+    if len(cur_results) % 1000 == 0:
+			tf.logging.info("Processing example: %d" % (len(cur_results)))
+
+    unique_id = int(result["unique_ids"])
+    start_top_log_probs = (
+				[float(x) for x in result["start_top_log_probs"].flat])
+    start_top_index = [int(x) for x in result["start_top_index"].flat]
+    end_top_log_probs = (
+				[float(x) for x in result["end_top_log_probs"].flat])
+    end_top_index = [int(x) for x in result["end_top_index"].flat]
+
+    cls_logits = float(result["cls_logits"].flat[0])
+
+    cur_results.append(
+				RawResult(
+						unique_id=unique_id,
+						start_top_log_probs=start_top_log_probs,
+						start_top_index=start_top_index,
+						end_top_log_probs=end_top_log_probs,
+						end_top_index=end_top_index,
+						cls_logits=cls_logits))
+
+  ret = get_predictions(eval_data, eval_features, cur_results,
+                        FLAGS.n_best_size, FLAGS.max_answer_length)
+  print(ret)
 
 if __name__ == "__main__":
-  tf.app.run()
+  FLAGS(sys.argv)
+  mrqa_tester()

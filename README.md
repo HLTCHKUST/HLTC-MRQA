@@ -34,7 +34,7 @@ With a large number of datasets being released and new techniques being proposed
 
 ## Model
 <p align="center">
-<img src="img/model.png" width="50%" />
+<img src="img/model.png" width="25%" />
 </p>
 
 ## Experiment
